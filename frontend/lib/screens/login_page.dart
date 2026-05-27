@@ -8,10 +8,16 @@ class LoginPage extends StatefulWidget {
   const LoginPage({
     super.key,
     required this.api,
+    required this.currentBaseUrl,
+    required this.defaultBaseUrl,
+    required this.onBaseUrlChanged,
     required this.onLoggedIn,
   });
 
   final VoiceToSheetApi api;
+  final String currentBaseUrl;
+  final String defaultBaseUrl;
+  final Future<void> Function(String baseUrl) onBaseUrlChanged;
   final ValueChanged<AuthSession> onLoggedIn;
 
   @override
@@ -20,21 +26,93 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _baseUrlController;
   final _usernameController = TextEditingController(text: 'agent.demo');
   final _passwordController = TextEditingController(text: 'demo1234');
 
+  bool _isSavingBaseUrl = false;
   bool _isSubmitting = false;
   String? _errorMessage;
 
   @override
+  void initState() {
+    super.initState();
+    _baseUrlController = TextEditingController(text: widget.currentBaseUrl);
+  }
+
+  @override
+  void didUpdateWidget(covariant LoginPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentBaseUrl != widget.currentBaseUrl &&
+        _baseUrlController.text.trim() != widget.currentBaseUrl) {
+      _baseUrlController.text = widget.currentBaseUrl;
+    }
+  }
+
+  @override
   void dispose() {
+    _baseUrlController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
+  Future<void> _applyBaseUrl(String rawValue) async {
+    final normalizedValue = ApiConfig.normalizeBaseUrl(rawValue);
+    if (normalizedValue == null) {
+      setState(() {
+        _errorMessage =
+            'Entre une URL backend valide, par exemple http://10.250.136.170:8000';
+      });
+      return;
+    }
+
+    setState(() {
+      _isSavingBaseUrl = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await widget.onBaseUrlChanged(normalizedValue);
+
+      if (!mounted) {
+        return;
+      }
+
+      _baseUrlController.text = normalizedValue;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Backend configure: $normalizedValue'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _errorMessage = 'Impossible de sauvegarder le backend.\nDetail: $error';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSavingBaseUrl = false;
+        });
+      }
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    final normalizedBaseUrl = ApiConfig.normalizeBaseUrl(_baseUrlController.text);
+    if (normalizedBaseUrl == null) {
+      setState(() {
+        _errorMessage =
+            'Entre une URL backend valide, par exemple http://10.250.136.170:8000';
+      });
       return;
     }
 
@@ -44,7 +122,17 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      final session = await widget.api.login(
+      if (normalizedBaseUrl != widget.api.baseUrl) {
+        await widget.onBaseUrlChanged(normalizedBaseUrl);
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      _baseUrlController.text = normalizedBaseUrl;
+      final api = VoiceToSheetApi(baseUrl: normalizedBaseUrl);
+      final session = await api.login(
         username: _usernameController.text.trim(),
         password: _passwordController.text.trim(),
       );
@@ -58,12 +146,12 @@ class _LoginPageState extends State<LoginPage> {
       setState(() {
         _errorMessage = error.message;
       });
-    } catch (e) {
+    } catch (error) {
       setState(() {
         _errorMessage =
-            'Connexion impossible (${ApiConfig.baseUrl}).\n'
+            'Connexion impossible ($normalizedBaseUrl).\n'
             'Verifie que le backend tourne, que le telephone est sur le meme Wi-Fi que le PC, puis reessaie.\n'
-            'Detail: $e';
+            'Detail: $error';
       });
     } finally {
       if (mounted) {
@@ -133,6 +221,61 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                           const SizedBox(height: 24),
                           TextFormField(
+                            controller: _baseUrlController,
+                            keyboardType: TextInputType.url,
+                            decoration: const InputDecoration(
+                              labelText: 'URL backend',
+                              hintText: 'http://10.250.136.170:8000',
+                              prefixIcon: Icon(Icons.cloud_outlined),
+                            ),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Entre une URL backend.';
+                              }
+                              if (ApiConfig.normalizeBaseUrl(value) == null) {
+                                return 'Entre une URL http:// ou https:// valide.';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _isSavingBaseUrl || _isSubmitting
+                                      ? null
+                                      : () => _applyBaseUrl(_baseUrlController.text),
+                                  icon: _isSavingBaseUrl
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        )
+                                      : const Icon(Icons.settings_ethernet_rounded),
+                                  label: const Text('Appliquer'),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              TextButton(
+                                onPressed: _isSavingBaseUrl || _isSubmitting
+                                    ? null
+                                    : () {
+                                        _baseUrlController.text = widget.defaultBaseUrl;
+                                      },
+                                child: const Text('URL par defaut'),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Pour un test sur telephone: mets l IP du PC, puis garde le mobile sur le meme Wi-Fi.',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFF526965),
+                                ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
                             controller: _usernameController,
                             decoration: const InputDecoration(
                               labelText: 'Identifiant',
@@ -198,7 +341,7 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Backend: ${ApiConfig.baseUrl}\nSur telephone, il faut que le mobile soit sur le meme Wi-Fi que ce PC.',
+                            'Backend actuel: ${widget.api.baseUrl}',
                             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                   color: const Color(0xFF526965),
                                 ),

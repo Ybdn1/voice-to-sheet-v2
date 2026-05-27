@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/api_config.dart';
+import '../core/backend_url_store.dart';
 import '../models/auth_models.dart';
 import '../screens/login_page.dart';
 import '../screens/report_form_page.dart';
@@ -14,24 +15,68 @@ class VoiceToSheetApp extends StatefulWidget {
 }
 
 class _VoiceToSheetAppState extends State<VoiceToSheetApp> {
-  late final VoiceToSheetApi _api;
+  final BackendUrlStore _backendUrlStore = BackendUrlStore();
   AuthSession? _session;
+  String? _baseUrl;
+  bool _isLoadingConfig = true;
 
   @override
   void initState() {
     super.initState();
-    _api = VoiceToSheetApi(baseUrl: ApiConfig.baseUrl);
+    _loadBaseUrl();
+  }
+
+  Future<void> _loadBaseUrl() async {
+    final baseUrl = await _backendUrlStore.loadBaseUrl();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _baseUrl = baseUrl;
+      _isLoadingConfig = false;
+    });
+  }
+
+  Future<void> _updateBaseUrl(String baseUrl) async {
+    await _backendUrlStore.saveBaseUrl(baseUrl);
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _baseUrl = baseUrl;
+      _session = null;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoadingConfig || _baseUrl == null) {
+      return MaterialApp(
+        title: 'VoiceToSheet',
+        debugShowCheckedModeBanner: false,
+        theme: _buildTheme(),
+        home: const Scaffold(
+          body: Center(
+            child: CircularProgressIndicator(),
+          ),
+        ),
+      );
+    }
+
+    final api = VoiceToSheetApi(baseUrl: _baseUrl!);
+
     return MaterialApp(
       title: 'VoiceToSheet',
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
       home: _session == null
           ? LoginPage(
-              api: _api,
+              api: api,
+              currentBaseUrl: _baseUrl!,
+              defaultBaseUrl: ApiConfig.defaultBaseUrl,
+              onBaseUrlChanged: _updateBaseUrl,
               onLoggedIn: (session) {
                 setState(() {
                   _session = session;
@@ -39,7 +84,7 @@ class _VoiceToSheetAppState extends State<VoiceToSheetApp> {
               },
             )
           : ReportFormPage(
-              api: _api,
+              api: api,
               session: _session!,
               onLogout: () {
                 setState(() {

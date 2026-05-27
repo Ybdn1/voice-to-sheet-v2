@@ -13,18 +13,19 @@ app = FastAPI(
     description="API backend pour l'application mobile VoiceToSheet.",
 )
 
-cors_options = {
-    "allow_credentials": True,
+cors_options: dict = {
     "allow_methods": ["*"],
     "allow_headers": ["*"],
 }
 
 if VOICE_TO_SHEET_CORS_ORIGINS:
+    # Origines explicites configurees (ex: web app hebergee) — cookies/credentials OK.
     cors_options["allow_origins"] = VOICE_TO_SHEET_CORS_ORIGINS
+    cors_options["allow_credentials"] = True
 else:
-    cors_options["allow_origin_regex"] = (
-        r"https?://(localhost|127\.0\.0\.1|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d+)?"
-    )
+    # Pas d'origines configurees : API mobile/ouverte — on autorise tout.
+    # (allow_credentials ne peut pas etre True avec allow_origins=["*"])
+    cors_options["allow_origins"] = ["*"]
 
 app.add_middleware(CORSMiddleware, **cors_options)
 
