@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: voice-to-sheet-backend
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: MISTRAL_API_KEY
+        sync: false
+      - key: MISTRAL_MODEL
+        value: mistral-large-latest
+      - key: VOICE_TO_SHEET_USERS
+        sync: false
+      - key: VOICE_TO_SHEET_CORS_ORIGINS
+        value: ""

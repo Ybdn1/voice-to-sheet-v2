@@ -1,0 +1,26 @@
+name: voice_to_sheet_frontend
+description: "VoiceToSheet mobile app for wastewater field agents."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  extension_google_sign_in_as_googleapis_auth: ^3.0.0
+  google_sign_in: ^7.2.0
+  http: ^1.5.0
+  speech_to_text: ^7.3.0
+  url_launcher: ^6.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

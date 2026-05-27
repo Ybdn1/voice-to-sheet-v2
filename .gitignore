@@ -1,0 +1,10 @@
+backend/.env
+backend/venv/
+backend/__pycache__/
+backend/app/__pycache__/
+frontend/build/
+venv/
+.idea/
+.claude/
+**/__pycache__/
+*.pyc
