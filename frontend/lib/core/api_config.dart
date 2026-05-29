@@ -3,8 +3,11 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 
 class ApiConfig {
-  /// IP locale du PC sur le reseau Wi-Fi.
-  /// A mettre a jour si l'IP change (ou utiliser la variable d'env VOICE_TO_SHEET_API_URL).
+  /// URL du backend heberge sur Render (production).
+  static const String _prodUrl = 'https://voice-to-sheet-v2.onrender.com';
+
+  /// IP locale du PC — utilisee uniquement si VOICE_TO_SHEET_API_URL est defini
+  /// (developpement local uniquement).
   static const String _pcLanIp = '172.20.10.9';
 
   static String get defaultBaseUrl {
@@ -13,14 +16,12 @@ class ApiConfig {
       return customUrl;
     }
 
-    if (kIsWeb) {
-      return 'http://127.0.0.1:8000';
+    // En production (mobile ou web) : on utilise toujours l'URL Render.
+    if (kIsWeb || (!kIsWeb && (Platform.isAndroid || Platform.isIOS))) {
+      return _prodUrl;
     }
 
-    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
-      return 'http://$_pcLanIp:8000';
-    }
-
+    // Desktop local (dev) : localhost
     return 'http://localhost:8000';
   }
 
