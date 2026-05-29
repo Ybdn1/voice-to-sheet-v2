@@ -220,59 +220,89 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                           ),
                           const SizedBox(height: 24),
-                          TextFormField(
-                            controller: _baseUrlController,
-                            keyboardType: TextInputType.url,
-                            decoration: const InputDecoration(
-                              labelText: 'URL backend',
-                              hintText: 'http://10.250.136.170:8000',
-                              prefixIcon: Icon(Icons.cloud_outlined),
+                          // ── Parametres avances (URL backend) ─────────────
+                          Theme(
+                            data: Theme.of(context).copyWith(
+                              dividerColor: Colors.transparent,
                             ),
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Entre une URL backend.';
-                              }
-                              if (ApiConfig.normalizeBaseUrl(value) == null) {
-                                return 'Entre une URL http:// ou https:// valide.';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: <Widget>[
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: _isSavingBaseUrl || _isSubmitting
-                                      ? null
-                                      : () => _applyBaseUrl(_baseUrlController.text),
-                                  icon: _isSavingBaseUrl
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(strokeWidth: 2),
-                                        )
-                                      : const Icon(Icons.settings_ethernet_rounded),
-                                  label: const Text('Appliquer'),
-                                ),
+                            child: ExpansionTile(
+                              tilePadding: EdgeInsets.zero,
+                              childrenPadding: EdgeInsets.zero,
+                              title: Row(
+                                children: <Widget>[
+                                  const Icon(
+                                    Icons.settings_outlined,
+                                    size: 16,
+                                    color: Color(0xFF526965),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Parametres avances',
+                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                          color: const Color(0xFF526965),
+                                        ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 10),
-                              TextButton(
-                                onPressed: _isSavingBaseUrl || _isSubmitting
-                                    ? null
-                                    : () {
-                                        _baseUrlController.text = widget.defaultBaseUrl;
-                                      },
-                                child: const Text('URL par defaut'),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Pour un test sur telephone: mets l IP du PC, puis garde le mobile sur le meme Wi-Fi.',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: const Color(0xFF526965),
+                              children: <Widget>[
+                                const SizedBox(height: 8),
+                                TextFormField(
+                                  controller: _baseUrlController,
+                                  keyboardType: TextInputType.url,
+                                  decoration: const InputDecoration(
+                                    labelText: 'URL backend',
+                                    hintText: 'https://voice-to-sheet-v2.onrender.com',
+                                    prefixIcon: Icon(Icons.cloud_outlined),
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.trim().isEmpty) {
+                                      return 'Entre une URL backend.';
+                                    }
+                                    if (ApiConfig.normalizeBaseUrl(value) == null) {
+                                      return 'Entre une URL http:// ou https:// valide.';
+                                    }
+                                    return null;
+                                  },
                                 ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: <Widget>[
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: _isSavingBaseUrl || _isSubmitting
+                                            ? null
+                                            : () => _applyBaseUrl(_baseUrlController.text),
+                                        icon: _isSavingBaseUrl
+                                            ? const SizedBox(
+                                                width: 16,
+                                                height: 16,
+                                                child: CircularProgressIndicator(strokeWidth: 2),
+                                              )
+                                            : const Icon(Icons.settings_ethernet_rounded),
+                                        label: const Text('Appliquer'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    TextButton(
+                                      onPressed: _isSavingBaseUrl || _isSubmitting
+                                          ? null
+                                          : () {
+                                              _baseUrlController.text = widget.defaultBaseUrl;
+                                            },
+                                      child: const Text('URL par defaut'),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Modifie uniquement si tu heberges le backend toi-meme sur un autre serveur.',
+                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                        color: const Color(0xFF526965),
+                                      ),
+                                ),
+                                const SizedBox(height: 8),
+                              ],
+                            ),
                           ),
                           const SizedBox(height: 16),
                           TextFormField(
@@ -338,13 +368,6 @@ class _LoginPageState extends State<LoginPage> {
                               _passwordController.text = 'demo1234';
                             },
                             child: const Text('Utiliser le compte de demo'),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Backend actuel: ${widget.api.baseUrl}',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: const Color(0xFF526965),
-                                ),
                           ),
                         ],
                       ),

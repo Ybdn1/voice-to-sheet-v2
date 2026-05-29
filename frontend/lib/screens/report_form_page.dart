@@ -87,29 +87,27 @@ class _ReportFormPageState extends State<ReportFormPage> {
   DateTime? _lastSpeechTime;
   String? _errorMessage;
 
+  /// Identifiant de session micro : incremente a chaque nouveau listen().
+  /// Les callbacks onResult de la session precedente sont ignores.
+  int _listenSession = 0;
+
   ReferenceItem? get _selectedSite {
     for (final item in _sites) {
-      if (item.id == _selectedSiteId) {
-        return item;
-      }
+      if (item.id == _selectedSiteId) return item;
     }
     return null;
   }
 
   ReferenceItem? get _selectedContract {
     for (final item in _contracts) {
-      if (item.id == _selectedContractId) {
-        return item;
-      }
+      if (item.id == _selectedContractId) return item;
     }
     return null;
   }
 
   ZoneItem? get _selectedZone {
     for (final item in _zones) {
-      if (item.id == _selectedZoneId) {
-        return item;
-      }
+      if (item.id == _selectedZoneId) return item;
     }
     return null;
   }
@@ -165,42 +163,32 @@ class _ReportFormPageState extends State<ReportFormPage> {
         widget.api.fetchContracts(widget.session.accessToken),
       ]);
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       setState(() {
         _sites = results[0] as List<ReferenceItem>;
         _contracts = results[1] as List<ReferenceItem>;
-        _selectedSiteId = _sites.any((site) => site.id == _selectedSiteId)
+        _selectedSiteId = _sites.any((s) => s.id == _selectedSiteId)
             ? _selectedSiteId
             : (_sites.isNotEmpty ? _sites.first.id : null);
-        _selectedContractId = _contracts.any((contract) => contract.id == _selectedContractId)
+        _selectedContractId = _contracts.any((c) => c.id == _selectedContractId)
             ? _selectedContractId
             : (_contracts.isNotEmpty ? _contracts.first.id : null);
       });
 
       await _loadZones();
     } on ApiException catch (error) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       setState(() {
-        _errorMessage = 'References backend indisponibles. Mode local actif.\n${error.message}';
+        _errorMessage = 'References indisponibles — mode local actif.\n${error.message}';
       });
     } catch (_) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       setState(() {
-        _errorMessage = 'Impossible de synchroniser les references. Mode local actif.';
+        _errorMessage = 'Impossible de synchroniser les references — mode local actif.';
       });
     } finally {
-      if (mounted) {
-        setState(() {
-          _isSyncingReferences = false;
-        });
-      }
+      if (mounted) setState(() { _isSyncingReferences = false; });
     }
   }
 
@@ -229,34 +217,24 @@ class _ReportFormPageState extends State<ReportFormPage> {
         contractId: contractId,
       );
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       setState(() {
         _zones = zones;
         _selectedZoneId = zones.isNotEmpty ? zones.first.id : null;
       });
     } on ApiException catch (error) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       setState(() {
-        _errorMessage = 'Zones backend indisponibles. Mode local actif.\n${error.message}';
+        _errorMessage = 'Zones indisponibles — mode local actif.\n${error.message}';
       });
     } catch (_) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       setState(() {
-        _errorMessage = 'Impossible de synchroniser les zones. Mode local actif.';
+        _errorMessage = 'Impossible de synchroniser les zones — mode local actif.';
       });
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingZones = false;
-        });
-      }
+      if (mounted) setState(() { _isLoadingZones = false; });
     }
   }
 
@@ -266,20 +244,17 @@ class _ReportFormPageState extends State<ReportFormPage> {
         if (!mounted) return;
         if (status == 'done' || status == 'notListening') {
           if (_userWantsToListen) {
-            // Verifie si le silence dure depuis plus de 5 minutes.
             final lastSpeech = _lastSpeechTime;
             final silenceTooLong = lastSpeech != null &&
                 DateTime.now().difference(lastSpeech) >= _silenceTimeout;
 
             if (silenceTooLong) {
-              // 5 minutes sans parole → arret automatique propre.
               _userWantsToListen = false;
               _committedText = '';
               _lastSpeechTime = null;
               setState(() { _isListening = false; });
             } else {
-              // Android a coupe (pause courte ou limite de session) mais
-              // l'agent n'a pas encore atteint 5 min de silence → on relance.
+              // Android a coupe la session → on valide le texte actuel et on relance.
               _committedText = _descriptionController.text.trim();
               unawaited(_startListening());
             }
@@ -291,12 +266,9 @@ class _ReportFormPageState extends State<ReportFormPage> {
       onError: (error) {
         if (!mounted) return;
         if (_userWantsToListen) {
-          // En cas d'erreur passagere, on retente apres un court delai.
           _committedText = _descriptionController.text.trim();
           Future<void>.delayed(const Duration(milliseconds: 500), () {
-            if (_userWantsToListen && mounted) {
-              unawaited(_startListening());
-            }
+            if (_userWantsToListen && mounted) unawaited(_startListening());
           });
         } else {
           setState(() { _isListening = false; });
@@ -304,15 +276,16 @@ class _ReportFormPageState extends State<ReportFormPage> {
       },
     );
 
-    if (mounted) {
-      setState(() {
-        _speechReady = available;
-      });
-    }
+    if (mounted) setState(() { _speechReady = available; });
   }
 
   Future<void> _startListening() async {
     if (!mounted) return;
+
+    // Nouvel identifiant de session : les callbacks de l'ancienne session
+    // seront ignores, ce qui evite la duplication du texte.
+    _listenSession++;
+    final mySession = _listenSession;
 
     await _speech.listen(
       localeId: 'fr_FR',
@@ -323,12 +296,13 @@ class _ReportFormPageState extends State<ReportFormPage> {
         partialResults: true,
       ),
       onResult: (result) {
+        // Ignorer les callbacks d'une session perimee.
+        if (mySession != _listenSession) return;
+
         final newWords = result.recognizedWords.trim();
         if (newWords.isNotEmpty) {
-          // Un mot a ete capte → on remet le compteur de silence a zero.
           _lastSpeechTime = DateTime.now();
         }
-        // On concatene le texte deja valide avec les nouveaux mots reconnus.
         final fullText = _committedText.isEmpty
             ? newWords
             : '$_committedText $newWords';
@@ -340,46 +314,32 @@ class _ReportFormPageState extends State<ReportFormPage> {
       },
     );
 
-    if (mounted) {
-      setState(() {
-        _isListening = true;
-      });
-    }
+    if (mounted) setState(() { _isListening = true; });
   }
 
   Future<void> _toggleListening() async {
-    if (!_speechReady) {
-      await _initSpeech();
-    }
+    if (!_speechReady) await _initSpeech();
 
     if (!_speechReady) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('La dictee native est indisponible sur cet appareil.'),
-        ),
+        const SnackBar(content: Text('Dictee non disponible sur cet appareil.')),
       );
       return;
     }
 
     if (_isListening || _userWantsToListen) {
-      // L'agent arrete manuellement → on stoppe tout sans relancer.
       _userWantsToListen = false;
       _committedText = '';
       _lastSpeechTime = null;
       await _speech.stop();
-      if (mounted) {
-        setState(() {
-          _isListening = false;
-        });
-      }
+      if (mounted) setState(() { _isListening = false; });
       return;
     }
 
-    // Demarre la dictee longue duree.
     _userWantsToListen = true;
     _committedText = _descriptionController.text.trim();
-    _lastSpeechTime = DateTime.now(); // demarre le compteur de silence
+    _lastSpeechTime = DateTime.now();
     await _startListening();
   }
 
@@ -390,16 +350,11 @@ class _ReportFormPageState extends State<ReportFormPage> {
     final description = _descriptionController.text.trim();
 
     if (site == null || contract == null || zone == null) {
-      setState(() {
-        _errorMessage = 'Choisis le site, le contrat et la zone.';
-      });
+      setState(() { _errorMessage = 'Choisis le site, le contrat et la zone.'; });
       return;
     }
-
     if (description.isEmpty) {
-      setState(() {
-        _errorMessage = 'Ajoute une description ou utilise le micro.';
-      });
+      setState(() { _errorMessage = 'Ajoute une description ou utilise le micro.'; });
       return;
     }
 
@@ -419,9 +374,7 @@ class _ReportFormPageState extends State<ReportFormPage> {
         ),
       );
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -432,44 +385,28 @@ class _ReportFormPageState extends State<ReportFormPage> {
         ),
       );
     } on ApiException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _errorMessage = error.message;
-      });
+      if (!mounted) return;
+      setState(() { _errorMessage = error.message; });
     } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _errorMessage = 'Extraction impossible. Verifie le backend puis reessaie.';
-      });
+      if (!mounted) return;
+      setState(() { _errorMessage = 'Extraction impossible. Verifie le backend puis reessaie.'; });
     } finally {
-      if (mounted) {
-        setState(() {
-          _isSubmitting = false;
-        });
-      }
+      if (mounted) setState(() { _isSubmitting = false; });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 72,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const Text(
-              'Nouveau releve',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            Text(
-              widget.session.fullName,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            const Text('Nouveau releve', style: TextStyle(fontWeight: FontWeight.w700)),
+            Text(widget.session.fullName, style: theme.textTheme.bodySmall),
           ],
         ),
         actions: <Widget>[
@@ -483,185 +420,156 @@ class _ReportFormPageState extends State<ReportFormPage> {
       body: SafeArea(
         top: false,
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
           children: <Widget>[
-            Container(
-              padding: const EdgeInsets.all(16),
-              color: const Color(0xFFFFF2B3),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  const Text(
-                    'Ecran de saisie actif',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text('API: ${widget.api.baseUrl}'),
-                  Text('Sites charges: ${_sites.length}'),
-                  Text('Contrats charges: ${_contracts.length}'),
-                  Text('Zones chargees: ${_zones.length}'),
-                  Text('Sync backend: ${_isSyncingReferences ? "en cours" : "terminee"}'),
-                  Text('Zones en chargement: ${_isLoadingZones ? "oui" : "non"}'),
-                  if (kIsWeb) const Text('Mode web: micro desactive'),
-                ],
-              ),
+            // ─── Site ────────────────────────────────────────────────────────
+            _DropdownCard(
+              label: 'Site',
+              icon: Icons.location_on_outlined,
+              isLoading: _isSyncingReferences,
+              value: _selectedSiteId,
+              items: _sites.map((s) => _DropdownEntry(id: s.id, name: s.name)).toList(),
+              onChanged: (value) async {
+                setState(() => _selectedSiteId = value);
+                await _loadZones();
+              },
             ),
-            const SizedBox(height: 16),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              color: const Color(0xFFE3F4F1),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  const Text(
-                    'Bouton pour parler',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    kIsWeb
-                        ? 'La dictee vocale n est pas active dans cet apercu web. Lance l app sur Android pour parler.'
-                        : 'Appuie sur le bouton ci-dessous puis parle naturellement.',
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: kIsWeb ? null : _toggleListening,
-                      icon: Icon(
-                        _isListening
-                            ? Icons.stop_circle_outlined
-                            : Icons.mic_none_rounded,
-                      ),
-                      label: Text(
-                        kIsWeb
-                            ? 'Micro disponible sur Android'
-                            : (_isListening ? 'Arreter la dictee' : 'Parler maintenant'),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            const SizedBox(height: 12),
+            // ─── Contrat ─────────────────────────────────────────────────────
+            _DropdownCard(
+              label: 'Contrat',
+              icon: Icons.description_outlined,
+              isLoading: _isSyncingReferences,
+              value: _selectedContractId,
+              items: _contracts.map((c) => _DropdownEntry(id: c.id, name: c.name)).toList(),
+              onChanged: (value) async {
+                setState(() => _selectedContractId = value);
+                await _loadZones();
+              },
             ),
-            const SizedBox(height: 16),
-            _SimpleSection(
-              title: '1. Site',
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _sites
-                    .map(
-                      (site) => ChoiceChip(
-                        label: Text(site.name),
-                        selected: _selectedSiteId == site.id,
-                        onSelected: (selected) async {
-                          if (!selected) {
-                            return;
-                          }
-                          setState(() {
-                            _selectedSiteId = site.id;
-                          });
-                          await _loadZones();
-                        },
-                      ),
-                    )
-                    .toList(),
-              ),
+            const SizedBox(height: 12),
+            // ─── Zone ─────────────────────────────────────────────────────────
+            _DropdownCard(
+              label: 'Zone',
+              icon: Icons.map_outlined,
+              isLoading: _isLoadingZones,
+              value: _selectedZoneId,
+              items: _zones.map((z) => _DropdownEntry(id: z.id, name: z.name)).toList(),
+              onChanged: (value) => setState(() => _selectedZoneId = value),
             ),
-            const SizedBox(height: 16),
-            _SimpleSection(
-              title: '2. Contrat',
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _contracts
-                    .map(
-                      (contract) => ChoiceChip(
-                        label: Text(contract.name),
-                        selected: _selectedContractId == contract.id,
-                        onSelected: (selected) async {
-                          if (!selected) {
-                            return;
-                          }
-                          setState(() {
-                            _selectedContractId = contract.id;
-                          });
-                          await _loadZones();
-                        },
-                      ),
-                    )
-                    .toList(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            _SimpleSection(
-              title: '3. Zone',
-              child: _zones.isEmpty
-                  ? const Text('Aucune zone disponible.')
-                  : Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _zones
-                          .map(
-                            (zone) => ChoiceChip(
-                              label: Text(zone.name),
-                              selected: _selectedZoneId == zone.id,
-                              onSelected: (selected) {
-                                if (!selected) {
-                                  return;
-                                }
-                                setState(() {
-                                  _selectedZoneId = zone.id;
-                                });
-                              },
+            const SizedBox(height: 20),
+            // ─── Description + Micro ─────────────────────────────────────────
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        const Icon(Icons.edit_note_rounded, size: 18, color: Color(0xFF0F766E)),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Description',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                            color: Color(0xFF132A27),
+                          ),
+                        ),
+                        const Spacer(),
+                        if (!kIsWeb)
+                          FilledButton.tonalIcon(
+                            onPressed: _toggleListening,
+                            style: FilledButton.styleFrom(
+                              minimumSize: Size.zero,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              backgroundColor: _isListening
+                                  ? const Color(0xFFDCFCE7)
+                                  : theme.colorScheme.surfaceContainerHighest,
+                              foregroundColor: _isListening
+                                  ? const Color(0xFF15803D)
+                                  : theme.colorScheme.onSurface,
                             ),
-                          )
-                          .toList(),
+                            icon: Icon(
+                              _isListening
+                                  ? Icons.stop_circle_outlined
+                                  : Icons.mic_none_rounded,
+                              size: 18,
+                            ),
+                            label: Text(
+                              _isListening ? 'Stop' : 'Dicter',
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                      ],
                     ),
-            ),
-            const SizedBox(height: 16),
-            _SimpleSection(
-              title: '4. Description libre',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    kIsWeb
-                        ? 'Saisie texte seulement dans le navigateur.'
-                        : 'Tu peux utiliser le gros bouton micro plus haut ou saisir au clavier.',
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _descriptionController,
-                    minLines: 6,
-                    maxLines: 10,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      hintText:
-                          'Exemple: reservoir eaux brutes avec 3 pompes, pompe 1 cassee, pompe 2 50DN...',
+                    if (_isListening) ...<Widget>[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: <Widget>[
+                          const SizedBox(
+                            width: 10,
+                            height: 10,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Color(0xFF0F766E),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Enregistrement en cours...',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF0F766E),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _descriptionController,
+                      minLines: 5,
+                      maxLines: 12,
+                      decoration: InputDecoration(
+                        hintText: kIsWeb
+                            ? 'Saisir le releve ici...'
+                            : 'Appuie sur "Dicter" ou saisir ici...\n'
+                              'Ex: reservoir eaux brutes, 3 pompes, pompe 1 en panne...',
+                        alignLabelWithHint: true,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
+            // ─── Actions ─────────────────────────────────────────────────────
             Row(
               children: <Widget>[
                 Expanded(
-                  child: OutlinedButton(
+                  child: OutlinedButton.icon(
                     onPressed: () {
                       _descriptionController.clear();
+                      _committedText = '';
                       setState(() {});
                     },
-                    child: const Text('Effacer'),
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    label: const Text('Effacer'),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: FilledButton(
+                  child: FilledButton.icon(
                     onPressed: _isSubmitting ? null : _submit,
-                    child: Text(_isSubmitting ? 'Extraction...' : 'Valider'),
+                    icon: _isSubmitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.check_rounded),
+                    label: Text(_isSubmitting ? 'Extraction...' : 'Valider'),
                   ),
                 ),
               ],
@@ -670,8 +578,15 @@ class _ReportFormPageState extends State<ReportFormPage> {
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(14),
-                color: const Color(0xFFFFD7D7),
-                child: Text(_errorMessage!),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF1F1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFFD5D5)),
+                ),
+                child: Text(
+                  _errorMessage!,
+                  style: const TextStyle(color: Color(0xFF8B2D2D)),
+                ),
               ),
             ],
           ],
@@ -681,31 +596,84 @@ class _ReportFormPageState extends State<ReportFormPage> {
   }
 }
 
-class _SimpleSection extends StatelessWidget {
-  const _SimpleSection({
-    required this.title,
-    required this.child,
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+class _DropdownEntry {
+  const _DropdownEntry({required this.id, required this.name});
+  final String id;
+  final String name;
+}
+
+class _DropdownCard extends StatelessWidget {
+  const _DropdownCard({
+    required this.label,
+    required this.icon,
+    required this.isLoading,
+    required this.value,
+    required this.items,
+    required this.onChanged,
   });
 
-  final String title;
-  final Widget child;
+  final String label;
+  final IconData icon;
+  final bool isLoading;
+  final String? value;
+  final List<_DropdownEntry> items;
+  final void Function(String?) onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      color: Colors.white,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            title,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          child,
-        ],
+    // Si la valeur n'est pas dans la liste (ex: chargement en cours), on met null.
+    final safeValue = items.any((e) => e.id == value) ? value : null;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Icon(icon, size: 16, color: const Color(0xFF0F766E)),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: Color(0xFF526965),
+                  ),
+                ),
+                if (isLoading) ...<Widget>[
+                  const SizedBox(width: 8),
+                  const SizedBox(
+                    width: 10,
+                    height: 10,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: safeValue,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              ),
+              hint: Text(isLoading ? 'Chargement...' : 'Selectionner $label'),
+              items: items
+                  .map(
+                    (e) => DropdownMenuItem<String>(
+                      value: e.id,
+                      child: Text(e.name, overflow: TextOverflow.ellipsis),
+                    ),
+                  )
+                  .toList(),
+              onChanged: items.isEmpty ? null : onChanged,
+            ),
+          ],
+        ),
       ),
     );
   }
