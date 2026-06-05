@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/api_config.dart';
@@ -20,34 +22,61 @@ class _VoiceToSheetAppState extends State<VoiceToSheetApp> {
   String? _baseUrl;
   bool _isLoadingConfig = true;
 
+  /// Vrai si le backend Render n'a pas répondu dans les 2,5 premières secondes
+  /// (plan gratuit Render endort le serveur après 15 min d'inactivité).
+  bool _isBackendWakingUp = false;
+
   @override
   void initState() {
     super.initState();
-    _loadBaseUrl();
+    unawaited(_loadBaseUrl());
   }
 
   Future<void> _loadBaseUrl() async {
     final baseUrl = await _backendUrlStore.loadBaseUrl();
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
 
     setState(() {
       _baseUrl = baseUrl;
       _isLoadingConfig = false;
     });
+
+    // Ping en arrière-plan pour détecter si Render est endormi.
+    unawaited(_pingBackend(baseUrl));
+  }
+
+  Future<void> _pingBackend(String baseUrl) async {
+    final api = VoiceToSheetApi(baseUrl: baseUrl);
+
+    // Si pas de réponse en 2,5 s → afficher le bandeau de réveil.
+    final timer = Timer(const Duration(milliseconds: 2500), () {
+      if (mounted) setState(() => _isBackendWakingUp = true);
+    });
+
+    try {
+      await api.ping();
+    } catch (_) {
+      // Ignorer : l'utilisateur verra l'erreur quand il tentera de se connecter.
+    } finally {
+      timer.cancel();
+      if (mounted) setState(() => _isBackendWakingUp = false);
+    }
   }
 
   Future<void> _updateBaseUrl(String baseUrl) async {
     await _backendUrlStore.saveBaseUrl(baseUrl);
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
 
     setState(() {
       _baseUrl = baseUrl;
       _session = null;
     });
+
+    unawaited(_pingBackend(baseUrl));
+  }
+
+  void _handleLogout() {
+    setState(() => _session = null);
   }
 
   @override
@@ -58,9 +87,7 @@ class _VoiceToSheetAppState extends State<VoiceToSheetApp> {
         debugShowCheckedModeBanner: false,
         theme: _buildTheme(),
         home: const Scaffold(
-          body: Center(
-            child: CircularProgressIndicator(),
-          ),
+          body: Center(child: CircularProgressIndicator()),
         ),
       );
     }
@@ -77,23 +104,29 @@ class _VoiceToSheetAppState extends State<VoiceToSheetApp> {
               currentBaseUrl: _baseUrl!,
               defaultBaseUrl: ApiConfig.defaultBaseUrl,
               onBaseUrlChanged: _updateBaseUrl,
-              onLoggedIn: (session) {
-                setState(() {
-                  _session = session;
-                });
-              },
+              onLoggedIn: (session) => setState(() => _session = session),
+              isBackendWakingUp: _isBackendWakingUp,
             )
           : ReportFormPage(
               api: api,
               session: _session!,
-              onLogout: () {
-                setState(() {
-                  _session = null;
-                });
+              onLogout: _handleLogout,
+              onSessionExpired: () {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Session expirée — veuillez vous reconnecter.',
+                    ),
+                  ),
+                );
+                _handleLogout();
               },
             ),
     );
   }
+
+  // ── Thème ────────────────────────────────────────────────────────────────
 
   ThemeData _buildTheme() {
     const base = Color(0xFF0F766E);
@@ -127,7 +160,8 @@ class _VoiceToSheetAppState extends State<VoiceToSheetApp> {
           borderRadius: BorderRadius.circular(18),
           borderSide: const BorderSide(color: Color(0xFF0F766E), width: 1.5),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
@@ -155,3 +189,4 @@ class _VoiceToSheetAppState extends State<VoiceToSheetApp> {
     );
   }
 }
+

@@ -6,10 +6,6 @@ class ApiConfig {
   /// URL du backend heberge sur Render (production).
   static const String _prodUrl = 'https://voice-to-sheet-v2.onrender.com';
 
-  /// IP locale du PC — utilisee uniquement si VOICE_TO_SHEET_API_URL est defini
-  /// (developpement local uniquement).
-  static const String _pcLanIp = '172.20.10.9';
-
   static String get defaultBaseUrl {
     const customUrl = String.fromEnvironment('VOICE_TO_SHEET_API_URL');
     if (customUrl.isNotEmpty) {

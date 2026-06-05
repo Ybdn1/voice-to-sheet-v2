@@ -12,6 +12,7 @@ class LoginPage extends StatefulWidget {
     required this.defaultBaseUrl,
     required this.onBaseUrlChanged,
     required this.onLoggedIn,
+    this.isBackendWakingUp = false,
   });
 
   final VoiceToSheetApi api;
@@ -19,6 +20,10 @@ class LoginPage extends StatefulWidget {
   final String defaultBaseUrl;
   final Future<void> Function(String baseUrl) onBaseUrlChanged;
   final ValueChanged<AuthSession> onLoggedIn;
+
+  /// Vrai si le backend Render n'a pas encore répondu au ping initial
+  /// (plan gratuit : le serveur peut mettre 30-60 s à redémarrer).
+  final bool isBackendWakingUp;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -57,6 +62,8 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
+  // ── Actions ───────────────────────────────────────────────────────────────
+
   Future<void> _applyBaseUrl(String rawValue) async {
     final normalizedValue = ApiConfig.normalizeBaseUrl(rawValue);
     if (normalizedValue == null) {
@@ -74,40 +81,27 @@ class _LoginPageState extends State<LoginPage> {
 
     try {
       await widget.onBaseUrlChanged(normalizedValue);
-
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       _baseUrlController.text = normalizedValue;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Backend configure: $normalizedValue'),
-        ),
+        SnackBar(content: Text('Backend configure: $normalizedValue')),
       );
     } catch (error) {
-      if (!mounted) {
-        return;
-      }
-
+      if (!mounted) return;
       setState(() {
         _errorMessage = 'Impossible de sauvegarder le backend.\nDetail: $error';
       });
     } finally {
-      if (mounted) {
-        setState(() {
-          _isSavingBaseUrl = false;
-        });
-      }
+      if (mounted) setState(() => _isSavingBaseUrl = false);
     }
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
-    final normalizedBaseUrl = ApiConfig.normalizeBaseUrl(_baseUrlController.text);
+    final normalizedBaseUrl =
+        ApiConfig.normalizeBaseUrl(_baseUrlController.text);
     if (normalizedBaseUrl == null) {
       setState(() {
         _errorMessage =
@@ -125,10 +119,7 @@ class _LoginPageState extends State<LoginPage> {
       if (normalizedBaseUrl != widget.api.baseUrl) {
         await widget.onBaseUrlChanged(normalizedBaseUrl);
       }
-
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       _baseUrlController.text = normalizedBaseUrl;
       final api = VoiceToSheetApi(baseUrl: normalizedBaseUrl);
@@ -137,16 +128,13 @@ class _LoginPageState extends State<LoginPage> {
         password: _passwordController.text.trim(),
       );
 
-      if (!mounted) {
-        return;
-      }
-
+      if (!mounted) return;
       widget.onLoggedIn(session);
     } on ApiException catch (error) {
-      setState(() {
-        _errorMessage = error.message;
-      });
+      if (!mounted) return;
+      setState(() => _errorMessage = error.message);
     } catch (error) {
+      if (!mounted) return;
       setState(() {
         _errorMessage =
             'Connexion impossible ($normalizedBaseUrl).\n'
@@ -154,13 +142,11 @@ class _LoginPageState extends State<LoginPage> {
             'Detail: $error';
       });
     } finally {
-      if (mounted) {
-        setState(() {
-          _isSubmitting = false;
-        });
-      }
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -168,216 +154,279 @@ class _LoginPageState extends State<LoginPage> {
       body: DecoratedBox(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: <Color>[
-              Color(0xFFEAF6F2),
-              Color(0xFFF8F4EA),
-            ],
+            colors: <Color>[Color(0xFFEAF6F2), Color(0xFFF8F4EA)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
         ),
         child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: Card(
-                  child: Padding(
+          child: Column(
+            children: <Widget>[
+              // ── Bandeau wakeup ──────────────────────────────────────────
+              if (widget.isBackendWakingUp) _buildWakeupBanner(context),
+              // ── Formulaire ──────────────────────────────────────────────
+              Expanded(
+                child: Center(
+                  child: SingleChildScrollView(
                     padding: const EdgeInsets.all(24),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Container(
-                            width: 58,
-                            height: 58,
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primary,
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: const Icon(
-                              Icons.mic_external_on_rounded,
-                              color: Colors.white,
-                              size: 30,
-                            ),
-                          ),
-                          const SizedBox(height: 18),
-                          Text(
-                            'VoiceToSheet',
-                            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  color: const Color(0xFF183531),
-                                ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Connexion agent pour relever les equipements, anomalies et controles terrain.',
-                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                  color: const Color(0xFF526965),
-                                ),
-                          ),
-                          const SizedBox(height: 24),
-                          // ── Parametres avances (URL backend) ─────────────
-                          Theme(
-                            data: Theme.of(context).copyWith(
-                              dividerColor: Colors.transparent,
-                            ),
-                            child: ExpansionTile(
-                              tilePadding: EdgeInsets.zero,
-                              childrenPadding: EdgeInsets.zero,
-                              title: Row(
-                                children: <Widget>[
-                                  const Icon(
-                                    Icons.settings_outlined,
-                                    size: 16,
-                                    color: Color(0xFF526965),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'Parametres avances',
-                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                          color: const Color(0xFF526965),
-                                        ),
-                                  ),
-                                ],
-                              ),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Form(
+                            key: _formKey,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
                               children: <Widget>[
-                                const SizedBox(height: 8),
-                                TextFormField(
-                                  controller: _baseUrlController,
-                                  keyboardType: TextInputType.url,
-                                  decoration: const InputDecoration(
-                                    labelText: 'URL backend',
-                                    hintText: 'https://voice-to-sheet-v2.onrender.com',
-                                    prefixIcon: Icon(Icons.cloud_outlined),
+                                _buildHeader(context),
+                                const SizedBox(height: 24),
+                                _buildAdvancedSettings(context),
+                                const SizedBox(height: 16),
+                                _buildUsernameField(),
+                                const SizedBox(height: 16),
+                                _buildPasswordField(),
+                                const SizedBox(height: 12),
+                                if (_errorMessage != null) ...<Widget>[
+                                  _buildErrorBox(),
+                                  const SizedBox(height: 12),
+                                ],
+                                FilledButton.icon(
+                                  onPressed: _isSubmitting ? null : _submit,
+                                  icon: _isSubmitting
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2),
+                                        )
+                                      : const Icon(Icons.login_rounded),
+                                  label: Text(
+                                    _isSubmitting
+                                        ? 'Connexion...'
+                                        : 'Se connecter',
                                   ),
-                                  validator: (value) {
-                                    if (value == null || value.trim().isEmpty) {
-                                      return 'Entre une URL backend.';
-                                    }
-                                    if (ApiConfig.normalizeBaseUrl(value) == null) {
-                                      return 'Entre une URL http:// ou https:// valide.';
-                                    }
-                                    return null;
-                                  },
                                 ),
                                 const SizedBox(height: 10),
-                                Row(
-                                  children: <Widget>[
-                                    Expanded(
-                                      child: OutlinedButton.icon(
-                                        onPressed: _isSavingBaseUrl || _isSubmitting
-                                            ? null
-                                            : () => _applyBaseUrl(_baseUrlController.text),
-                                        icon: _isSavingBaseUrl
-                                            ? const SizedBox(
-                                                width: 16,
-                                                height: 16,
-                                                child: CircularProgressIndicator(strokeWidth: 2),
-                                              )
-                                            : const Icon(Icons.settings_ethernet_rounded),
-                                        label: const Text('Appliquer'),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    TextButton(
-                                      onPressed: _isSavingBaseUrl || _isSubmitting
-                                          ? null
-                                          : () {
-                                              _baseUrlController.text = widget.defaultBaseUrl;
-                                            },
-                                      child: const Text('URL par defaut'),
-                                    ),
-                                  ],
+                                TextButton(
+                                  onPressed: () {
+                                    _usernameController.text = 'agent.demo';
+                                    _passwordController.text = 'demo1234';
+                                  },
+                                  child: const Text('Utiliser le compte de demo'),
                                 ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Modifie uniquement si tu heberges le backend toi-meme sur un autre serveur.',
-                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                        color: const Color(0xFF526965),
-                                      ),
-                                ),
-                                const SizedBox(height: 8),
                               ],
                             ),
                           ),
-                          const SizedBox(height: 16),
-                          TextFormField(
-                            controller: _usernameController,
-                            decoration: const InputDecoration(
-                              labelText: 'Identifiant',
-                              prefixIcon: Icon(Icons.person_outline_rounded),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Entre un identifiant.';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          TextFormField(
-                            controller: _passwordController,
-                            obscureText: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Mot de passe',
-                              prefixIcon: Icon(Icons.lock_outline_rounded),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Entre un mot de passe.';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                          if (_errorMessage != null) ...<Widget>[
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFF1F1),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: const Color(0xFFFFD5D5)),
-                              ),
-                              child: Text(
-                                _errorMessage!,
-                                style: const TextStyle(color: Color(0xFF8B2D2D)),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                          ],
-                          FilledButton.icon(
-                            onPressed: _isSubmitting ? null : _submit,
-                            icon: _isSubmitting
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  )
-                                : const Icon(Icons.login_rounded),
-                            label: Text(_isSubmitting ? 'Connexion...' : 'Se connecter'),
-                          ),
-                          const SizedBox(height: 10),
-                          TextButton(
-                            onPressed: () {
-                              _usernameController.text = 'agent.demo';
-                              _passwordController.text = 'demo1234';
-                            },
-                            child: const Text('Utiliser le compte de demo'),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
+            ],
           ),
         ),
+      ),
+    );
+  }
+
+  // ── Widgets auxiliaires ───────────────────────────────────────────────────
+
+  Widget _buildWakeupBanner(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFFFF8E1),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: <Widget>[
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Color(0xFFD97706),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Demarrage du backend en cours (30-60 s)…',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF92400E),
+                    fontWeight: FontWeight.w500,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Container(
+          width: 58,
+          height: 58,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: const Icon(
+            Icons.mic_external_on_rounded,
+            color: Colors.white,
+            size: 30,
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          'VoiceToSheet',
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF183531),
+              ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Connexion agent pour relever les equipements, anomalies et controles terrain.',
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: const Color(0xFF526965),
+              ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAdvancedSettings(BuildContext context) {
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: EdgeInsets.zero,
+        title: Row(
+          children: <Widget>[
+            const Icon(Icons.settings_outlined,
+                size: 16, color: Color(0xFF526965)),
+            const SizedBox(width: 6),
+            Text(
+              'Parametres avances',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF526965),
+                  ),
+            ),
+          ],
+        ),
+        children: <Widget>[
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _baseUrlController,
+            keyboardType: TextInputType.url,
+            decoration: const InputDecoration(
+              labelText: 'URL backend',
+              hintText: 'https://voice-to-sheet-v2.onrender.com',
+              prefixIcon: Icon(Icons.cloud_outlined),
+            ),
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'Entre une URL backend.';
+              }
+              if (ApiConfig.normalizeBaseUrl(value) == null) {
+                return 'Entre une URL http:// ou https:// valide.';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isSavingBaseUrl || _isSubmitting
+                      ? null
+                      : () => _applyBaseUrl(_baseUrlController.text),
+                  icon: _isSavingBaseUrl
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child:
+                              CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.settings_ethernet_rounded),
+                  label: const Text('Appliquer'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              TextButton(
+                onPressed: _isSavingBaseUrl || _isSubmitting
+                    ? null
+                    : () {
+                        _baseUrlController.text = widget.defaultBaseUrl;
+                      },
+                child: const Text('URL par defaut'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Modifie uniquement si tu heberges le backend sur un autre serveur.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFF526965),
+                ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUsernameField() {
+    return TextFormField(
+      controller: _usernameController,
+      decoration: const InputDecoration(
+        labelText: 'Identifiant',
+        prefixIcon: Icon(Icons.person_outline_rounded),
+      ),
+      validator: (value) {
+        if (value == null || value.trim().isEmpty) {
+          return 'Entre un identifiant.';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildPasswordField() {
+    return TextFormField(
+      controller: _passwordController,
+      obscureText: true,
+      decoration: const InputDecoration(
+        labelText: 'Mot de passe',
+        prefixIcon: Icon(Icons.lock_outline_rounded),
+      ),
+      validator: (value) {
+        if (value == null || value.trim().isEmpty) {
+          return 'Entre un mot de passe.';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildErrorBox() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF1F1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFFD5D5)),
+      ),
+      child: Text(
+        _errorMessage!,
+        style: const TextStyle(color: Color(0xFF8B2D2D)),
       ),
     );
   }
